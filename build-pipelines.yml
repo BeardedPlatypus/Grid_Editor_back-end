@@ -1,0 +1,32 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'windows-2019'
+
+steps:
+- task: CMake@1
+  displayName: CMake - Configure
+  inputs:
+    cmakeArgs: '-S . -B build'
+    runInsideShell: true
+
+- task: CMake@1
+  displayName: CMake - Build
+  inputs:
+    cmakeArgs: '--build build'
+    runInsideShell: true
+
+- task: CopyFiles@2
+  displayName: 'Publish - Copy bin'
+  inputs:
+    SourceFolder: 'build'
+    Contents: '*'
+    TargetFolder: '$(Build.ArtifactStagingDirectory)'
+    CleanTargetFolder: true
+    
+- task: PublishPipelineArtifact@0
+  displayName: 'Publish - Artifacts'
+  inputs:
+    artifactName: 'DebugArtefacts'
+    targetPath: '$(Build.ArtifactStagingDirectory)'
