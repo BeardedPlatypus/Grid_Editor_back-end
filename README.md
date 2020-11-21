@@ -1,6 +1,7 @@
 # MeshKernel
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Deltares_Grid_Editor_back-end&metric=alert_status)](https://sonarcloud.io/dashboard?id=Deltares_Grid_Editor_back-end)
 
-Deltares C++ library for creating and editing 2D unstructured and curvilinear meshes, suitable for the D-Flow Flexible Mesh simulator.
+Deltares C++ library for creating and editing 2D unstructured and curvilinear meshes.
 
 The library is separated in an API namespace (MeshKernelApi), used for communication with the client and a backend namespace (MeshKernel), where the algorithms are implemented. 
 The API namespace contains several structures used as parameters for the API methods (see API usage section). 
@@ -8,19 +9,48 @@ These structures must be mirrored in the client application and filled with appr
 
 ## Build
 
-### Windows
+The requirements are:
+- CMake 3.14 or higher
+- A C++11 compatible compiler
+- The Boost libraries
+- Git
+- Doxygen (optional)
 
-MeshKernel depends on boost. On windows precompiled boost binaries (with MSVC compiler) can be downloaded here:
+
+On windows precompiled boost binaries (with MSVC compiler) can be downloaded here:
 
 https://sourceforge.net/projects/boost/files/boost-binaries/ 
 
 Once installed, modify boost environmental variables accordingly. For example:
-
+```powershell
 BOOST_INCLUDEDIR=C:\Apps\boost_1_70_0
-
 BOOST_LIBRARYDIR=C:\Apps\boost_1_70_0\lib64-msvc-14.1
+```
+### IDE
+To use an IDE, such as Visual Studio:
 
-Install CMAKE (https://cmake.org/download/) and execute bootstrap.bat. The visual studio solution is produced inside the build folder.
+```powershell
+cmake -S . -B xbuild -G"Visual Studio 16 2019"
+cmake --open xbuild
+```
+### Command line
+To configure:
+```powershell
+cmake -S . -B build
+```
+
+To build:
+```powershell
+cmake --build build
+```
+
+To build docs (requires Doxygen, output in `build/docs/html`):
+```powershell
+cmake --build build --target docs
+```
+
+
+
 
 
 ## Examples
@@ -29,26 +59,26 @@ Install CMAKE (https://cmake.org/download/) and execute bootstrap.bat. The visua
 
 In this example a mesh is created by discretizing the polygon perimeter with the desired edge length
 
-![alt tag](doc/figures/TriangularMeshInPolygon.jpg)
+![alt tag](docs/latex/figures/TriangularMeshInPolygon.jpg)
 
 2. Mesh orthogonalization
 
 Finite volume staggered flow solvers require the mesh to be as much orthogonal as possible. 
 MeshKernel provides an algorithm to adapt the mesh and achieve a good balance between mesh orthogonality and smothness.
 
-![alt tag](doc/figures/MeshOrthogonalization.jpg)
+![alt tag](docs/latex/figures/MeshOrthogonalization.jpg)
 
 3. Curvilinear mesh generation
 
 Curvilinear meshes for rivers can be generated using splines.
 
-![alt tag](doc/figures/OrthogonalCurvilinearGrid.jpg)
+![alt tag](docs/latex/figures/OrthogonalCurvilinearGrid.jpg)
 
 4. Mesh refinement
 
 A mesh can be refined in areas based on samples or polygon selections 
 
-![alt tag](doc/figures/GridRefinement.jpg)
+![alt tag](docs/latex/figures/GridRefinement.jpg)
 
 
 ## API usage
@@ -78,7 +108,7 @@ meshGeometry.edge_nodes = &edge_nodes[0];
 bool isGeographic = false;
 
 // Set the mesh into the mesh entry created before
-state = mkernel_set_state(meshKernelId, meshGeometryDimensions, meshGeometry, bool isGeographic);
+state = mkernel_set_state(meshKernelId, meshGeometryDimensions, meshGeometry, isGeographic);
 
 // The new position
 std::vector<double> newPositionX{1.0};

@@ -29,81 +29,54 @@
 
 #include <vector>
 #include <algorithm>
-#include <cassert>
-#include "Operations.cpp"
-#include "Entities.hpp"
-#include "CurvilinearParametersNative.hpp"
-#include "SplinesToCurvilinearParametersNative.hpp"
-#include "Splines.hpp"
-#include "CurvilinearGrid.hpp"
+#include <stdexcept>
 
-meshkernel::Splines::Splines() : m_projection(Projections::cartesian)
-{
-};
+#include <MeshKernel/Exceptions.hpp>
+#include <MeshKernel/Operations.cpp>
+#include <MeshKernel/Entities.hpp>
+#include <MeshKernel/Splines.hpp>
 
-meshkernel::Splines::Splines(Projections projection) : m_projection(projection)
-{
-};
+meshkernel::Splines::Splines(){};
+
+meshkernel::Splines::Splines(Projections projection) : m_projection(projection){};
 
 /// add a new spline, return the index
-bool meshkernel::Splines::AddSpline(const std::vector<Point>& splines, size_t start, size_t size)
+void meshkernel::Splines::AddSpline(const std::vector<Point>& splines, size_t start, size_t size)
 {
-    ResizeVectorIfNeededWithMinimumSize(m_numSplines + 1, m_splineNodes, m_allocationSize, std::vector<Point>(10, { doubleMissingValue, doubleMissingValue }));
-
-    m_numAllocatedSplines = int(m_splineNodes.size());
-    m_numAllocatedSplineNodes.resize(m_numAllocatedSplines, 10);
-
-    m_numSplineNodes.resize(m_numAllocatedSplines, 0);
-    m_numSplineNodes[m_numSplines] = size;
-
-    m_splineDerivatives.resize(m_numAllocatedSplines);
-    int index = 0;
-    for (int n = start; n < start + size; ++n)
+    m_splineNodes.emplace_back();
+    for (auto n = start; n < start + size; ++n)
     {
-        m_splineNodes[m_numSplines][index] = splines[n];
-        index++;
+        m_splineNodes.back().emplace_back(splines[n]);
     }
-    m_splinesLength.resize(m_numAllocatedSplines);
 
     // compute basic properties
-    SecondOrderDerivative(m_splineNodes[m_numSplines], m_numSplineNodes[m_numSplines], m_splineDerivatives[m_numSplines]);
-    m_splinesLength[m_numSplines] = GetSplineLength(m_numSplines, 0, m_numSplineNodes[m_numSplines] - 1);
-    m_numSplines++;
-
-    return true;
+    m_splineDerivatives.emplace_back();
+    SecondOrderDerivative(m_splineNodes.back(), size, m_splineDerivatives.back());
+    m_splinesLength.emplace_back(GetSplineLength(static_cast<int>(GetNumSplines() - 1), 0, size - 1));
 }
 
-bool meshkernel::Splines::DeleteSpline(int splineIndex)
+void meshkernel::Splines::DeleteSpline(int splineIndex)
 {
     m_splineNodes.erase(m_splineNodes.begin() + splineIndex);
-    m_numSplineNodes.erase(m_numSplineNodes.begin() + splineIndex);
     m_splineDerivatives.erase(m_splineDerivatives.begin() + splineIndex);
     m_splinesLength.erase(m_splinesLength.begin() + splineIndex);
-    m_numSplines--;
-    return true;
 }
 
-/// add a new spline point in an existing spline
-bool meshkernel::Splines::AddPointInExistingSpline(int splineIndex, const Point& point)
+void meshkernel::Splines::AddPointInExistingSpline(int splineIndex, const Point& point)
 {
-    if (splineIndex > m_numSplines)
+    if (splineIndex > GetNumSplines())
     {
-        return false;
+        throw std::invalid_argument("Splines::AddPointInExistingSpline: Invalid spline index.");
     }
-    ResizeVectorIfNeededWithMinimumSize(m_numSplineNodes[splineIndex] + 1, m_splineNodes[splineIndex], m_allocationSize, { doubleMissingValue, doubleMissingValue });
-    m_numAllocatedSplineNodes[splineIndex] = int(m_splineNodes[splineIndex].size());
-
-    m_splineNodes[splineIndex][m_numSplineNodes[splineIndex]] = point;
-    m_numSplineNodes[splineIndex]++;
-    return true;
+    m_splineNodes[splineIndex].emplace_back(point);
 }
 
-bool meshkernel::Splines::GetSplinesIntersection(int first, 
-                                               int second,
-                                               double& crossProductIntersection,
-                                               Point& intersectionPoint,
-                                               double& firstSplineRatio,
-                                               double& secondSplineRatio)
+bool meshkernel::Splines::GetSplinesIntersection(int first,
+                                                 int second,
+                                                 double& crossProductIntersection,
+                                                 Point& intersectionPoint,
+                                                 double& firstSplineRatio,
+                                                 double& secondSplineRatio)
 {
     double minimumCrossingDistance = std::numeric_limits<double>::max();
     double crossingDistance;
@@ -113,11 +86,13 @@ bool meshkernel::Splines::GetSplinesIntersection(int first,
     int firstCrossingIndex = 0;
     int secondCrossingIndex = 0;
     Point closestIntersection;
+    const auto numNodesFirstSpline = static_cast<int>(m_splineNodes[first].size());
+    const auto numNodesSecondSpline = static_cast<int>(m_splineNodes[second].size());
 
     // First find a valid crossing, the closest to spline central point
-    for (int n = 0; n < m_numSplineNodes[first] - 1; n++)
+    for (int n = 0; n < numNodesFirstSpline - 1; n++)
     {
-        for (int nn = 0; nn < m_numSplineNodes[second] - 1; nn++)
+        for (int nn = 0; nn < numNodesSecondSpline - 1; nn++)
         {
             Point intersection;
             double crossProduct;
@@ -134,14 +109,13 @@ bool meshkernel::Splines::GetSplinesIntersection(int first,
                                                 secondRatio,
                                                 m_projection);
 
-
             if (areCrossing)
             {
-                if (m_numSplineNodes[first] == 2)
+                if (numNodesFirstSpline == 2)
                 {
                     crossingDistance = std::min(minimumCrossingDistance, std::abs(firstRatio - 0.5));
                 }
-                else if (m_numSplineNodes[second] == 2)
+                else if (numNodesSecondSpline == 2)
                 {
                     crossingDistance = std::abs(secondRatio - 0.5);
                 }
@@ -154,10 +128,10 @@ bool meshkernel::Splines::GetSplinesIntersection(int first,
                 {
                     minimumCrossingDistance = crossingDistance;
                     numCrossing = 1;
-                    firstCrossingIndex = n;             //TI0
-                    secondCrossingIndex = nn;           //TJ0
-                    firstCrossingRatio = firstRatio;    //SL
-                    secondCrossingRatio = secondRatio;  //SM
+                    firstCrossingIndex = n;            //TI0
+                    secondCrossingIndex = nn;          //TJ0
+                    firstCrossingRatio = firstRatio;   //SL
+                    secondCrossingRatio = secondRatio; //SM
                 }
             }
             closestIntersection = intersection;
@@ -173,7 +147,7 @@ bool meshkernel::Splines::GetSplinesIntersection(int first,
     double firstCrossing = firstCrossingRatio == -1 ? 0 : firstCrossingIndex + firstCrossingRatio;
     double secondCrossing = secondCrossingRatio == -1 ? 0 : secondCrossingIndex + secondCrossingRatio;
 
-    // use bisection to find the intersection 
+    // use bisection to find the intersection
     double squaredDistanceBetweenCrossings = std::numeric_limits<double>::max();
     double maxSquaredDistanceBetweenCrossings = 1e-12;
     double maxDistanceBetweenVertices = 0.0001;
@@ -182,7 +156,7 @@ bool meshkernel::Splines::GetSplinesIntersection(int first,
     double previousFirstCrossing;
     double previousSecondCrossing;
     int numIterations = 0;
-    while (squaredDistanceBetweenCrossings > maxSquaredDistanceBetweenCrossings&& numIterations < 20)
+    while (squaredDistanceBetweenCrossings > maxSquaredDistanceBetweenCrossings && numIterations < 20)
     {
         // increment counter
         numIterations++;
@@ -196,40 +170,40 @@ bool meshkernel::Splines::GetSplinesIntersection(int first,
             secondRatioIterations = 0.5 * secondRatioIterations;
         }
 
-        firstCrossing = std::max(0.0, std::min(firstCrossing, double(m_numSplineNodes[first])));
-        secondCrossing = std::max(0.0, std::min(secondCrossing, double(m_numSplineNodes[second])));
+        firstCrossing = std::max(0.0, std::min(firstCrossing, double(numNodesFirstSpline)));
+        secondCrossing = std::max(0.0, std::min(secondCrossing, double(numNodesSecondSpline)));
 
-        double firstLeft = std::max(0.0, std::min(double(m_numSplineNodes[first] - 1), firstCrossing - firstRatioIterations / 2.0));
-        double firstRight = std::max(0.0, std::min(double(m_numSplineNodes[first] - 1), firstCrossing + firstRatioIterations / 2.0));
+        double firstLeft = std::max(0.0, std::min(double(numNodesFirstSpline - 1), firstCrossing - firstRatioIterations / 2.0));
+        double firstRight = std::max(0.0, std::min(double(numNodesFirstSpline - 1), firstCrossing + firstRatioIterations / 2.0));
 
-        double secondLeft = std::max(0.0, std::min(double(m_numSplineNodes[second] - 1), secondCrossing - secondRatioIterations / 2.0));
-        double secondRight = std::max(0.0, std::min(double(m_numSplineNodes[second] - 1), secondCrossing + secondRatioIterations / 2.0));
+        double secondLeft = std::max(0.0, std::min(double(numNodesSecondSpline - 1), secondCrossing - secondRatioIterations / 2.0));
+        double secondRight = std::max(0.0, std::min(double(numNodesSecondSpline - 1), secondCrossing + secondRatioIterations / 2.0));
 
         firstRatioIterations = firstRight - firstLeft;
         secondRatioIterations = secondRight - secondLeft;
 
-        Point firstLeftSplinePoint{ doubleMissingValue, doubleMissingValue };
-        bool successful = InterpolateSplinePoint( m_splineNodes[first], m_splineDerivatives[first],  firstLeft, firstLeftSplinePoint);
-        if (!successful) 
+        Point firstLeftSplinePoint{doubleMissingValue, doubleMissingValue};
+        bool successful = InterpolateSplinePoint(m_splineNodes[first], m_splineDerivatives[first], firstLeft, firstLeftSplinePoint);
+        if (!successful)
         {
             return false;
         }
 
-        Point firstRightSplinePoint{ doubleMissingValue, doubleMissingValue };
+        Point firstRightSplinePoint{doubleMissingValue, doubleMissingValue};
         successful = InterpolateSplinePoint(m_splineNodes[first], m_splineDerivatives[first], firstRight, firstRightSplinePoint);
         if (!successful)
         {
             return false;
         }
 
-        Point secondLeftSplinePoint{ doubleMissingValue, doubleMissingValue };
+        Point secondLeftSplinePoint{doubleMissingValue, doubleMissingValue};
         successful = InterpolateSplinePoint(m_splineNodes[second], m_splineDerivatives[second], secondLeft, secondLeftSplinePoint);
         if (!successful)
         {
             return false;
         }
 
-        Point secondRightSplinePoint{ doubleMissingValue, doubleMissingValue };
+        Point secondRightSplinePoint{doubleMissingValue, doubleMissingValue};
         successful = InterpolateSplinePoint(m_splineNodes[second], m_splineDerivatives[second], secondRight, secondRightSplinePoint);
         if (!successful)
         {
@@ -241,16 +215,16 @@ bool meshkernel::Splines::GetSplinesIntersection(int first,
         double crossProduct;
         double firstRatio = doubleMissingValue;
         double secondRatio = doubleMissingValue;
-        bool areCrossing = AreLinesCrossing( firstLeftSplinePoint, 
-                                             firstRightSplinePoint,
-                                             secondLeftSplinePoint, 
-                                             secondRightSplinePoint,
-                                             true,
-                                             closestIntersection,
-                                             crossProduct,
-                                             firstRatio,
-                                             secondRatio,
-                                             m_projection );
+        bool areCrossing = AreLinesCrossing(firstLeftSplinePoint,
+                                            firstRightSplinePoint,
+                                            secondLeftSplinePoint,
+                                            secondRightSplinePoint,
+                                            true,
+                                            closestIntersection,
+                                            crossProduct,
+                                            firstRatio,
+                                            secondRatio,
+                                            m_projection);
 
         // search close by
         if (firstRatio > -2.0 && firstRatio < 3.0 && secondRatio > -2.0 && secondRatio < 3.0)
@@ -261,8 +235,8 @@ bool meshkernel::Splines::GetSplinesIntersection(int first,
             firstCrossing = firstLeft + firstRatio * (firstRight - firstLeft);
             secondCrossing = secondLeft + secondRatio * (secondRight - secondLeft);
 
-            firstCrossing = std::max(0.0, std::min(m_numSplineNodes[first] - 1.0, firstCrossing));
-            secondCrossing = std::max(0.0, std::min(m_numSplineNodes[second] - 1.0, secondCrossing));
+            firstCrossing = std::max(0.0, std::min(numNodesFirstSpline - 1.0, firstCrossing));
+            secondCrossing = std::max(0.0, std::min(numNodesSecondSpline - 1.0, secondCrossing));
 
             if (areCrossing)
             {
@@ -295,12 +269,12 @@ bool meshkernel::Splines::GetSplinesIntersection(int first,
 }
 
 double meshkernel::Splines::GetSplineLength(int index,
-                                          double startIndex,
-                                          double endIndex,
-                                          int numSamples,
-                                          bool accountForCurvature,
-                                          double height,
-                                          double assignedDelta)
+                                            double startIndex,
+                                            double endIndex,
+                                            int numSamples,
+                                            bool accountForCurvature,
+                                            double height,
+                                            double assignedDelta)
 {
     double splineLength = 0.0;
     double delta = assignedDelta;
@@ -308,18 +282,19 @@ double meshkernel::Splines::GetSplineLength(int index,
     if (delta < 0.0)
     {
         delta = 1.0 / numSamples;
-        numPoints = std::max(std::floor(0.9999 + (endIndex - startIndex) / delta), 10.0);
+        // TODO: Refactor or at least document the calculation of "numPoints"
+        numPoints = int(std::max(std::floor(0.9999 + (endIndex - startIndex) / delta), 10.0));
         delta = (endIndex - startIndex) / numPoints;
     }
 
     // first point
-    Point leftPoint{ doubleMissingValue, doubleMissingValue };
+    Point leftPoint{doubleMissingValue, doubleMissingValue};
     bool successful = InterpolateSplinePoint(m_splineNodes[index], m_splineDerivatives[index], startIndex, leftPoint);
-    if (!successful) 
+    if (!successful)
     {
-        return 0.0;
+        throw AlgorithmError("Splines::GetSplineLength: Could not interpolate spline points.");
     }
-   
+
     double rightPointCoordinateOnSpline = startIndex;
     double leftPointCoordinateOnSpline;
     for (int p = 0; p < numPoints; ++p)
@@ -331,11 +306,11 @@ double meshkernel::Splines::GetSplineLength(int index,
             rightPointCoordinateOnSpline = endIndex;
         }
 
-        Point rightPoint{ doubleMissingValue, doubleMissingValue };
+        Point rightPoint{doubleMissingValue, doubleMissingValue};
         successful = InterpolateSplinePoint(m_splineNodes[index], m_splineDerivatives[index], rightPointCoordinateOnSpline, rightPoint);
         if (!successful)
         {
-            return 0.0;
+            throw AlgorithmError("Splines::GetSplineLength: Could not interpolate spline points.");
         }
 
         double curvatureFactor = 0.0;
@@ -345,20 +320,21 @@ double meshkernel::Splines::GetSplineLength(int index,
             Point tangentialVector;
             ComputeCurvatureOnSplinePoint(index, 0.5 * (rightPointCoordinateOnSpline + leftPointCoordinateOnSpline), curvatureFactor, normalVector, tangentialVector);
         }
-        splineLength = splineLength + Distance(leftPoint, rightPoint, m_projection) * (1.0 + curvatureFactor * height);
+        splineLength = splineLength + ComputeDistance(leftPoint, rightPoint, m_projection) * (1.0 + curvatureFactor * height);
         leftPoint = rightPoint;
     }
 
     return splineLength;
 }
 
-bool meshkernel::Splines::ComputeCurvatureOnSplinePoint( int splineIndex,
-                                                       double adimensionalPointCoordinate,
-                                                       double& curvatureFactor,
-                                                       Point& normalVector,
-                                                       Point& tangentialVector)
+void meshkernel::Splines::ComputeCurvatureOnSplinePoint(int splineIndex,
+                                                        double adimensionalPointCoordinate,
+                                                        double& curvatureFactor,
+                                                        Point& normalVector,
+                                                        Point& tangentialVector)
 {
-    auto const leftCornerPoint = int(std::max(std::min(double(std::floor(adimensionalPointCoordinate)), double(m_numSplineNodes[splineIndex] - 1)), 0.0));
+    const auto numNodesFirstSpline = static_cast<int>(m_splineNodes[splineIndex].size());
+    auto const leftCornerPoint = int(std::max(std::min(double(std::floor(adimensionalPointCoordinate)), static_cast<double>(numNodesFirstSpline - 1)), 0.0));
     auto const rightCornerPoint = int(std::max(double(leftCornerPoint + 1.0), 0.0));
 
     double leftSegment = rightCornerPoint - adimensionalPointCoordinate;
@@ -366,19 +342,18 @@ bool meshkernel::Splines::ComputeCurvatureOnSplinePoint( int splineIndex,
 
     Point pointCoordinate;
     bool successful = InterpolateSplinePoint(m_splineNodes[splineIndex], m_splineDerivatives[splineIndex], adimensionalPointCoordinate, pointCoordinate);
-
-    if (!successful) 
+    if (!successful)
     {
         curvatureFactor = 0.0;
-        return false;
+        throw AlgorithmError("Splines::ComputeCurvatureOnSplinePoint: Could not interpolate spline points.");
     }
 
+    Point p = m_splineNodes[splineIndex][rightCornerPoint] - m_splineNodes[splineIndex][leftCornerPoint] +
+              (m_splineDerivatives[splineIndex][leftCornerPoint] * (-3.0 * leftSegment * leftSegment + 1.0) +
+               m_splineDerivatives[splineIndex][rightCornerPoint] * (3.0 * rightSegment * rightSegment - 1.0)) /
+                  6.0;
 
-    Point p = m_splineNodes[splineIndex][rightCornerPoint] - m_splineNodes[splineIndex][leftCornerPoint] + 
-              (m_splineDerivatives[splineIndex][leftCornerPoint] * (-3.0 * leftSegment * leftSegment + 1.0) + 
-               m_splineDerivatives[splineIndex][rightCornerPoint] * (3.0 * rightSegment * rightSegment - 1.0)) / 6.0;
-
-    Point pp = m_splineDerivatives[splineIndex][leftCornerPoint] * leftSegment + 
+    Point pp = m_splineDerivatives[splineIndex][leftCornerPoint] * leftSegment +
                m_splineDerivatives[splineIndex][rightCornerPoint] * rightSegment;
 
     if (m_projection == Projections::spherical)
@@ -392,22 +367,20 @@ bool meshkernel::Splines::ComputeCurvatureOnSplinePoint( int splineIndex,
     Point incremenetedPointCoordinate = pointCoordinate + p * 1e-4;
     NormalVectorOutside(pointCoordinate, incremenetedPointCoordinate, normalVector, m_projection);
 
-    double distance = Distance(pointCoordinate, incremenetedPointCoordinate, m_projection);
+    double distance = ComputeDistance(pointCoordinate, incremenetedPointCoordinate, m_projection);
     double dx = GetDx(pointCoordinate, incremenetedPointCoordinate, m_projection);
     double dy = GetDy(pointCoordinate, incremenetedPointCoordinate, m_projection);
 
     tangentialVector.x = dx / distance;
     tangentialVector.y = dy / distance;
-
-    return true;
 }
 
-bool meshkernel::Splines::SecondOrderDerivative(const std::vector<Point>& spline, int numNodes, std::vector<Point>& coordinatesDerivatives)
+void meshkernel::Splines::SecondOrderDerivative(const std::vector<Point>& spline, size_t numNodes, std::vector<Point>& coordinatesDerivatives)
 {
     std::vector<Point> u(numNodes);
-    u[0] = { 0.0, 0.0 };
-    coordinatesDerivatives.resize(spline.size(), { 0.0, 0.0 });
-    coordinatesDerivatives[0] = { 0.0, 0.0 };
+    u[0] = {0.0, 0.0};
+    coordinatesDerivatives.resize(spline.size(), {0.0, 0.0});
+    coordinatesDerivatives[0] = {0.0, 0.0};
 
     for (int i = 1; i < numNodes - 1; i++)
     {
@@ -419,16 +392,14 @@ bool meshkernel::Splines::SecondOrderDerivative(const std::vector<Point>& spline
         u[i] = (delta * 6.0 / 2.0 - u[i - 1] * 0.5) / p;
     }
 
-    coordinatesDerivatives[numNodes - 1] = { 0.0, 0.0 };
+    coordinatesDerivatives[numNodes - 1] = {0.0, 0.0};
     for (int i = numNodes - 2; i >= 0; i--)
     {
         coordinatesDerivatives[i] = coordinatesDerivatives[i] * coordinatesDerivatives[i + 1] + u[i];
     }
-
-    return true;
 }
 
-bool meshkernel::Splines::SecondOrderDerivative(const std::vector<double>& coordinates, int numNodes, std::vector<double>& coordinatesDerivatives)
+void meshkernel::Splines::SecondOrderDerivative(const std::vector<double>& coordinates, size_t numNodes, std::vector<double>& coordinatesDerivatives)
 {
     std::vector<double> u(numNodes);
     u[0] = 0.0;
@@ -448,25 +419,25 @@ bool meshkernel::Splines::SecondOrderDerivative(const std::vector<double>& coord
     {
         coordinatesDerivatives[i] = coordinatesDerivatives[i] * coordinatesDerivatives[i + 1] + u[i];
     }
-
-    return true;
 }
 
-bool meshkernel::Splines::InterpolatePointsOnSpline( int index,
-                                                     double maximumGridHeight,
-                                                     bool isSpacingCurvatureAdapted,
-                                                     const std::vector<double>& distances,
-                                                     std::vector<Point>& points,
-                                                     std::vector<double>& adimensionalDistances)
+void meshkernel::Splines::InterpolatePointsOnSpline(int index,
+                                                    double maximumGridHeight,
+                                                    bool isSpacingCurvatureAdapted,
+                                                    const std::vector<double>& distances,
+                                                    std::vector<Point>& points,
+                                                    std::vector<double>& adimensionalDistances)
 {
-    meshkernel::FuncDimensionalToAdimensionalDistance func(this, index, isSpacingCurvatureAdapted, maximumGridHeight);
-
-    for (int i = 0; i < distances.size(); i++)
+    FuncDimensionalToAdimensionalDistance func(this, index, isSpacingCurvatureAdapted, maximumGridHeight);
+    const auto numNodes = static_cast<int>(m_splineNodes[index].size());
+    for (size_t i = 0, size = distances.size(); i < size; ++i)
     {
         func.SetDimensionalDistance(distances[i]);
-        adimensionalDistances[i] = FindFunctionRootWithGoldenSectionSearch(func, 0, m_numSplineNodes[index] - 1);
-        InterpolateSplinePoint(m_splineNodes[index], m_splineDerivatives[index], adimensionalDistances[i], points[i]);
+        adimensionalDistances[i] = FindFunctionRootWithGoldenSectionSearch(func, 0, numNodes - 1);
+        auto successful = InterpolateSplinePoint(m_splineNodes[index], m_splineDerivatives[index], adimensionalDistances[i], points[i]);
+        if (!successful)
+        {
+            throw AlgorithmError("Splines::InterpolatePointsOnSpline: Could not interpolate spline points.");
+        }
     }
-
-    return true;
 }

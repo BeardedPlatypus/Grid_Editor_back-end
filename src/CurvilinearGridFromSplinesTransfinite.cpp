@@ -27,45 +27,36 @@
 
 #pragma once
 
-#include <vector>
 #include <algorithm>
-#include <cassert>
-#include "Operations.cpp"
-#include "Entities.hpp"
-#include "CurvilinearParametersNative.hpp"
-#include "SplinesToCurvilinearParametersNative.hpp"
-#include "CurvilinearGridFromSplinesTransfinite.hpp"
-#include "Splines.hpp"
-#include "CurvilinearGrid.hpp"
+#include <memory>
+#include <vector>
+#include <MeshKernel/CurvilinearGrid.hpp>
+#include <MeshKernel/Entities.hpp>
+#include <MeshKernel/Operations.cpp>
+#include <MeshKernel/Splines.hpp>
+#include <MeshKernel/CurvilinearGridFromSplinesTransfinite.hpp>
 
-meshkernel::CurvilinearGridFromSplinesTransfinite::CurvilinearGridFromSplinesTransfinite(std::shared_ptr<Splines> splines, 
-                                                                                         meshkernelapi::CurvilinearParametersNative curvilinearParametersNative): m_splines(splines), 
-                                                                                                                                                                  m_numN(curvilinearParametersNative.NRefinement),
-                                                                                                                                                                  m_numM(curvilinearParametersNative.MRefinement)
+meshkernel::CurvilinearGridFromSplinesTransfinite::CurvilinearGridFromSplinesTransfinite(std::shared_ptr<Splines> splines,
+                                                                                         meshkernelapi::CurvilinearParametersNative curvilinearParametersNative) : m_splines(splines),
+                                                                                                                                                                   m_numN(curvilinearParametersNative.NRefinement),
+                                                                                                                                                                   m_numM(curvilinearParametersNative.MRefinement)
 {
 }
 
-bool meshkernel::CurvilinearGridFromSplinesTransfinite::Compute(CurvilinearGrid& curvilinearGrid)
+void meshkernel::CurvilinearGridFromSplinesTransfinite::Compute(CurvilinearGrid& curvilinearGrid)
 {
-    // compute the intersections
     if (m_numN == 0 || m_numM == 0)
     {
-        return true;
+        throw std::invalid_argument("CurvilinearGridFromSplinesTransfinite::Compute: There are no rows or no columns.");
     }
 
-    // if the number of splines is less than 4 return false
-    const auto numSplines = m_splines->m_numSplines;
+    const auto numSplines = m_splines->GetNumSplines();
     if (numSplines < 4)
     {
-        return true;
+        throw std::invalid_argument("CurvilinearGridFromSplinesTransfinite::Compute: The number of splines is less than four.");
     }
 
-    // compute the intersections 
-    bool successful = ComputeIntersections();
-    if (!successful)
-    {
-        return true;
-    }
+    ComputeIntersections();
 
     const int numMPoints = m_numM + 1;
     const int numNPoints = m_numN + 1;
@@ -105,18 +96,19 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::Compute(CurvilinearGrid&
     for (int splineIndex = 0; splineIndex < numSplines; splineIndex++)
     {
         int numIntersections = 0;
-        for (int i = 0; i < m_splineIntersectionRatios[splineIndex].size(); i++)
+
+        for (const auto& value : m_splineIntersectionRatios[splineIndex])
         {
-            if (std::abs(m_splineIntersectionRatios[splineIndex][i]) > 0.0)
+            if (std::abs(value) > 0.0)
             {
-                intersectionDistances[numIntersections] = m_splines->GetSplineLength(splineIndex, 0.0, m_splineIntersectionRatios[splineIndex][i], 10, false);
+                intersectionDistances[numIntersections] = m_splines->GetSplineLength(splineIndex, 0.0, value, 10, false);
                 numIntersections++;
             }
         }
 
         if (numIntersections < 2)
         {
-            return false;
+            throw std::invalid_argument("CurvilinearGridFromSplinesTransfinite::Compute: The number of intersections are less than two.");
         }
 
         int numPoints;
@@ -135,7 +127,7 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::Compute(CurvilinearGrid&
         }
         else
         {
-            numPoints = TotalNRows  + 1;
+            numPoints = TotalNRows + 1;
             numDiscretizations = m_numN;
             position = (m_splineGroupIndexAndFromToIntersections[splineIndex][0] - 1) * m_numM;
             from = (m_splineGroupIndexAndFromToIntersections[splineIndex][1] - 1) * m_numN;
@@ -147,28 +139,23 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::Compute(CurvilinearGrid&
         adimensionalDistances.resize(numPoints);
         points.resize(numPoints);
 
-        successful = ComputeDiscretizations( numIntersections,
-                                             numPoints,
-                                             numDiscretizations,
-                                             intersectionDistances,
-                                             distances );
-        if (!successful)
-        {
-            return false;
-        }
+        ComputeDiscretizations(numIntersections,
+                               numPoints,
+                               numDiscretizations,
+                               intersectionDistances,
+                               distances);
 
-        m_splines->InterpolatePointsOnSpline( splineIndex,
-                                              doubleMissingValue,
-                                              false,
-                                              distances,
-                                              points,
-                                              adimensionalDistances );
+        m_splines->InterpolatePointsOnSpline(splineIndex,
+                                             doubleMissingValue,
+                                             false,
+                                             distances,
+                                             points,
+                                             adimensionalDistances);
 
         // Start filling curvilinear grid
         int index = 0;
         for (int i = from; i < to; i++)
         {
-
             if (splineIndex < m_numMSplines)
             {
                 curvilinearGrid.m_grid[i][position] = points[index];
@@ -197,7 +184,7 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::Compute(CurvilinearGrid&
                     const int m = i * m_numM + k;
                     const int n = j * m_numN + l;
 
-                    // We are at the boundary 
+                    // We are at the boundary
                     if (!curvilinearGrid.m_grid[m][n].IsValid())
                     {
                         continue;
@@ -223,19 +210,14 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::Compute(CurvilinearGrid&
             }
 
             // call transfinite interpolation
-            successful = InterpolateTransfinite( sideOne, 
-                                                 sideTwo, 
-                                                 sideThree, 
-                                                 sideFour, 
-                                                 m_splines->m_projection, 
-                                                 m_numM, 
-                                                 m_numN,
-                                                 interpolationResult );
-
-            if (!successful)
-            {
-                return false;
-            }
+            InterpolateTransfinite(sideOne,
+                                   sideTwo,
+                                   sideThree,
+                                   sideFour,
+                                   m_splines->m_projection,
+                                   m_numM,
+                                   m_numN,
+                                   interpolationResult);
 
             // assign the points
             for (int k = 0; k < numMPoints; k++)
@@ -255,15 +237,13 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::Compute(CurvilinearGrid&
             }
         }
     }
-
-    return successful;
 }
 
-bool meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeDiscretizations( int numIntersections,
-                                                                              int numPoints,
-                                                                              int numDiscretizations,
-                                                                              const std::vector<double>& intersectionDistances,
-                                                                              std::vector<double>& distances ) const
+void meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeDiscretizations(int numIntersections,
+                                                                               int numPoints,
+                                                                               int numDiscretizations,
+                                                                               const std::vector<double>& intersectionDistances,
+                                                                               std::vector<double>& distances) const
 {
 
     if (numIntersections == 2)
@@ -281,8 +261,7 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeDiscretizations( 
             ratioSegments[i] = (intersectionDistances[i + 1] - intersectionDistances[i]) / (intersectionDistances[i] - intersectionDistances[i - 1]);
         }
         ratioSegments[0] = ratioSegments[1];
-        ratioSegments[numIntersections-1] = ratioSegments[numIntersections - 2];
-
+        ratioSegments[numIntersections - 1] = ratioSegments[numIntersections - 2];
 
         // the ratios
         std::vector<double> leftDiscretization(numDiscretizations + 1, 0.0);
@@ -290,26 +269,16 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeDiscretizations( 
         for (int i = 0; i < numIntersections - 1; i++)
         {
             const double rightRatio = std::pow(ratioSegments[i + 1], 1.0 / numDiscretizations);
-            bool successful = ComputeExponentialDistances( rightRatio,
-                                                         intersectionDistances[i],
-                                                         intersectionDistances[i + 1],
-                                                         rightDiscretization );
-
-            if (!successful) 
-            {
-                return false;
-            }
+            ComputeExponentialDistances(rightRatio,
+                                        intersectionDistances[i],
+                                        intersectionDistances[i + 1],
+                                        rightDiscretization);
 
             const double leftRatio = std::pow(ratioSegments[i], 1.0 / numDiscretizations);
-            successful = ComputeExponentialDistances( leftRatio,
-                                                    intersectionDistances[i],
-                                                    intersectionDistances[i + 1],
-                                                    leftDiscretization );
-
-            if (!successful)
-            {
-                return false;
-            }
+            ComputeExponentialDistances(leftRatio,
+                                        intersectionDistances[i],
+                                        intersectionDistances[i + 1],
+                                        leftDiscretization);
 
             for (int j = 0; j < numDiscretizations + 1; j++)
             {
@@ -327,14 +296,12 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeDiscretizations( 
             }
         }
     }
-
-    return true;
 }
 
-bool meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeExponentialDistances( double factor, 
-                                                                                   double leftDistance,
-                                                                                   double rightDistance,
-                                                                                   std::vector<double>& distances ) const 
+void meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeExponentialDistances(double factor,
+                                                                                    double leftDistance,
+                                                                                    double rightDistance,
+                                                                                    std::vector<double>& distances) const
 {
     distances[0] = 0.0;
     double incrementRatio = 1.0;
@@ -346,18 +313,15 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeExponentialDistan
 
     incrementRatio = (rightDistance - leftDistance) / distances.back();
 
-    for (int i = 0; i < distances.size(); i++)
+    for (auto& value : distances)
     {
-        distances[i] = leftDistance + incrementRatio * distances[i];
+        value = leftDistance + incrementRatio * value;
     }
-
-    return true;
 }
 
-
-bool meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeIntersections()
+void meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeIntersections()
 {
-    const auto numSplines = m_splines->m_numSplines;
+    const auto numSplines = m_splines->GetNumSplines();
 
     // fill the splines with zeros
     m_splineType.resize(numSplines);
@@ -375,16 +339,17 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeIntersections()
             Point intersectionPoint;
             double firstSplineRatio;
             double secondSplineRatio;
+            const auto numNodesISpline = static_cast<int>(m_splines->m_splineNodes[i].size());
+            const auto numNodesJSpline = static_cast<int>(m_splines->m_splineNodes[j].size());
 
             // find intersections
             const auto areCrossing = m_splines->GetSplinesIntersection(i, j, crossProductIntersection, intersectionPoint, firstSplineRatio, secondSplineRatio);
 
-            if (areCrossing) 
+            if (areCrossing)
             {
-                if (m_splineType[i] * m_splineType[j] == 1) 
+                if (m_splineType[i] * m_splineType[j] == 1)
                 {
-                    // intersecting twice
-                    return false;
+                    throw std::invalid_argument("CurvilinearGridFromSplinesTransfinite::Compute: At least two splines are intersecting twice.");
                 }
                 else if (m_splineType[i] == 0 && m_splineType[j] == 0)
                 {
@@ -393,11 +358,11 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeIntersections()
                 else if (m_splineType[j] == 0)
                 {
                     m_splineType[j] = -m_splineType[i];
-                    if (crossProductIntersection * m_splineType[i] < 0.0) 
+                    if (crossProductIntersection * m_splineType[i] < 0.0)
                     {
                         // switch j
-                        SwapVectorElements(m_splines->m_splineNodes[j], m_splines->m_numSplineNodes[j]);
-                        secondSplineRatio = double(m_splines->m_numSplineNodes[j]) - 1.0 - secondSplineRatio;
+                        SwapVectorElements(m_splines->m_splineNodes[j], numNodesJSpline);
+                        secondSplineRatio = static_cast<double>(numNodesJSpline) - 1.0 - secondSplineRatio;
                     }
                 }
                 else if (m_splineType[i] == 0)
@@ -406,8 +371,8 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeIntersections()
                     if (crossProductIntersection * m_splineType[j] > 0.0)
                     {
                         // switch i
-                        SwapVectorElements(m_splines->m_splineNodes[i], m_splines->m_numSplineNodes[i]);
-                        firstSplineRatio = double(m_splines->m_numSplineNodes[i]) - 1.0 - firstSplineRatio;
+                        SwapVectorElements(m_splines->m_splineNodes[i], numNodesISpline);
+                        firstSplineRatio = static_cast<double>(numNodesISpline) - 1.0 - firstSplineRatio;
                     }
                 }
                 m_splineIntersectionRatios[i][j] = firstSplineRatio;
@@ -416,28 +381,26 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeIntersections()
         }
     }
 
-    // find if one of the spline could not be classified
-    // put the horizontal types on front first (done from swapping before)
     for (int i = 0; i < numSplines; i++)
     {
-        if (m_splineType[i] == 0) 
+        if (m_splineType[i] == 0)
         {
-            return false;
+            throw std::invalid_argument("CurvilinearGridFromSplinesTransfinite::Compute: At least one of the splines could not be classified.");
         }
     }
 
     // find the first non m spline
     m_numMSplines = FindIndex(m_splineType, -1);
-    m_numNSplines = numSplines - m_numMSplines;
+    m_numNSplines = int(numSplines) - m_numMSplines;
 
     int maxExternalIterations = 10;
     for (int i = 0; i < maxExternalIterations; i++)
     {
-        // sort along m 
+        // sort along m
         int maxInternalIterations = 100;
         for (int j = 0; j < maxInternalIterations; j++)
         {
-            auto successful = OrderSplines(0, m_numMSplines, m_numMSplines, numSplines);
+            auto successful = OrderSplines(0, m_numMSplines, m_numMSplines, int(numSplines));
             if (successful)
             {
                 break;
@@ -448,18 +411,18 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeIntersections()
         bool nSplineSortingHasNotChanged = true;
         for (int j = 0; j < maxInternalIterations; j++)
         {
-            auto successful = OrderSplines(m_numMSplines, numSplines, 0, m_numMSplines);
+            auto successful = OrderSplines(m_numMSplines, int(numSplines), 0, int(m_numMSplines));
             if (successful)
             {
                 break;
             }
-            else 
+            else
             {
                 nSplineSortingHasNotChanged = false;
             }
         }
 
-        if (nSplineSortingHasNotChanged) 
+        if (nSplineSortingHasNotChanged)
         {
             break;
         }
@@ -495,7 +458,6 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeIntersections()
         }
         m_splineGroupIndexAndFromToIntersections[i][0] = maxIndex;
     }
-
 
     // m direction
     for (int i = m_numMSplines; i < numSplines; i++)
@@ -562,14 +524,12 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::ComputeIntersections()
             }
         }
     }
-
-    return true;
 }
 
 bool meshkernel::CurvilinearGridFromSplinesTransfinite::OrderSplines(int startFirst,
-    int endFirst,
-    int startSecond,
-    int endSecond)
+                                                                     int endFirst,
+                                                                     int startSecond,
+                                                                     int endSecond)
 {
     for (int i = startFirst; i < endFirst; i++)
     {
@@ -595,7 +555,6 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::OrderSplines(int startFi
                 SwapRows(m_splineIntersectionRatios, j, k);
                 SwapColumns(m_splineIntersectionRatios, j, k);
 
-
                 //repeat the entire procedure once more
                 return false;
             }
@@ -605,23 +564,22 @@ bool meshkernel::CurvilinearGridFromSplinesTransfinite::OrderSplines(int startFi
     return true;
 }
 
-template<typename T>
-bool  meshkernel::CurvilinearGridFromSplinesTransfinite::SwapRows(std::vector<std::vector<T>>& v, int firstRow, int secondRow) const
+template <typename T>
+void meshkernel::CurvilinearGridFromSplinesTransfinite::SwapRows(std::vector<std::vector<T>>& v, int firstRow, int secondRow) const
 {
     auto minSize = std::min(v[firstRow].size(), v[secondRow].size());
-    minSize = std::min(minSize, m_splines->m_numSplines);
+    minSize = std::min(minSize, static_cast<size_t>(m_splines->GetNumSplines()));
 
     for (size_t i = 0; i < minSize; i++)
     {
         std::swap(v[firstRow][i], v[secondRow][i]);
     }
-    return true;
 }
 
-template<typename T>
-bool  meshkernel::CurvilinearGridFromSplinesTransfinite::SwapColumns(std::vector<std::vector<T>>& v, int firstColumn, int secondColumn) const
+template <typename T>
+void meshkernel::CurvilinearGridFromSplinesTransfinite::SwapColumns(std::vector<std::vector<T>>& v, int firstColumn, int secondColumn) const
 {
-    for (size_t i = 0; i < m_splines->m_numSplines; i++)
+    for (size_t i = 0; i < m_splines->GetNumSplines(); i++)
     {
         if (firstColumn >= v[i].size() || secondColumn >= v[i].size())
         {
@@ -630,5 +588,4 @@ bool  meshkernel::CurvilinearGridFromSplinesTransfinite::SwapColumns(std::vector
 
         std::swap(v[i][firstColumn], v[i][secondColumn]);
     }
-    return true;
 }
