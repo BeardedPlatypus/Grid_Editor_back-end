@@ -8,6 +8,11 @@ pool:
   vmImage: 'windows-2019'
 
 steps:
+- script: |
+    vcpkg install boost:x64-windows
+    vcpkg integrate install
+  displayName: vcpkg
+
 - task: CMake@1
   displayName: CMake - Configure
   inputs:
