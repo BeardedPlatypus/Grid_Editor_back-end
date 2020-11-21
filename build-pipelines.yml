@@ -1,6 +1,9 @@
 trigger:
 - main
 
+variables:
+  buildPath: $(Build.SourcesDirectory)/build
+
 pool:
   vmImage: 'windows-2019'
 
@@ -8,13 +11,13 @@ steps:
 - task: CMake@1
   displayName: CMake - Configure
   inputs:
-    cmakeArgs: '-S . -B build'
+    cmakeArgs: '-S $(Build.SourcesDirectory) -B $(buildPath)'
     runInsideShell: true
 
 - task: CMake@1
   displayName: CMake - Build
   inputs:
-    cmakeArgs: '--build build'
+    cmakeArgs: '--build $(buildPath)'
     runInsideShell: true
 
 - task: CopyFiles@2
