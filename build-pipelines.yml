@@ -23,8 +23,8 @@ steps:
 - task: CopyFiles@2
   displayName: 'Publish - Copy bin'
   inputs:
-    SourceFolder: '$(buildPath)/src/Release'
-    Contents: '*'
+    SourceFolder: '$(buildPath)'
+    Contents: '**/*'
     TargetFolder: '$(Build.ArtifactStagingDirectory)'
     CleanTargetFolder: true
     
